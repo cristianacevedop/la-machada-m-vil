@@ -1,0 +1,14 @@
+# Prohibido subir configuración local o credenciales.
+.Renviron
+.Rhistory
+.RData
+rsconnect/
+
+# Las copias de datos y respaldos nunca pertenecen al paquete público.
+*.sqlite
+*.sqlite3
+*.db
+*.zip
+*.tar
+*.tar.gz
+database/
