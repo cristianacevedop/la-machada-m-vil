@@ -4,7 +4,7 @@ library(plotly)
 
 source("R/db.R")
 
-ui <- tagList(
+ui_aplicacion <- tagList(
   tags$head(
     tags$meta(name = "viewport", content = "width=device-width, initial-scale=1, viewport-fit=cover"),
     tags$style(HTML("\
@@ -769,7 +769,7 @@ ui <- tagList(
 )
 )
 
-server <- function(input, output, session) {
+server_aplicacion <- function(input, output, session) {
   if (identical(backend_base(), "sqlite") && !file.exists(ruta_base)) {
     stop("No se encontró database/finca.sqlite. Ejecuta primero database/inicializar_base.R.")
   }
@@ -2306,6 +2306,68 @@ server <- function(input, output, session) {
       showNotification("Venta registrada, ingreso financiero creado y animales marcados como vendidos.", type = "message", duration = NULL)
     }, error = function(e) showNotification(paste("No se pudo registrar la venta:", conditionMessage(e)), type = "error", duration = NULL))
   })
+}
+
+# La barrera de acceso se sirve antes de montar la interfaz principal. Por eso,
+# la cinemática de bienvenida y la conexión a PostgreSQL solo se inician después
+# de validar la contraseña de la aplicación.
+ui <- fluidPage(
+  tags$head(
+    tags$meta(name = "viewport", content = "width=device-width, initial-scale=1, viewport-fit=cover"),
+    tags$style(HTML("
+      html, body { min-height: 100%; margin: 0; background: #edf3f8; }
+      .acceso-app { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+        padding: 24px; background: linear-gradient(145deg, #173a63, #2f6b9a); }
+      .acceso-app__tarjeta { width: min(100%, 430px); padding: 32px; border-radius: 16px;
+        background: #fffdf8; box-shadow: 0 12px 38px rgba(0, 0, 0, .23); }
+      .acceso-app__logo { display: block; width: min(100%, 250px); max-height: 130px;
+        object-fit: contain; margin: 0 auto 22px; }
+      .acceso-app__titulo { margin: 0 0 8px; text-align: center; color: #173a63; font-weight: 700; }
+      .acceso-app__ayuda { margin-bottom: 22px; text-align: center; color: #526477; }
+      .acceso-app__error { min-height: 22px; margin: 8px 0 0; color: #a32632; font-weight: 600; }
+      .acceso-app .btn-primary { width: 100%; margin-top: 10px; background: #2f6b9a; border: 0; }
+      .acceso-app .form-control { min-height: 44px; }
+      @media (max-width: 480px) { .acceso-app { padding: 16px; }
+        .acceso-app__tarjeta { padding: 24px 20px; } }
+    "))
+  ),
+  uiOutput("pantalla_acceso_app")
+)
+
+server <- function(input, output, session) {
+  password_app <- Sys.getenv("FINCA_APP_PASSWORD", unset = "")
+  if (!nzchar(password_app)) {
+    stop("Falta la variable secreta FINCA_APP_PASSWORD para proteger el acceso a la aplicación.")
+  }
+
+  autenticado <- reactiveVal(FALSE)
+
+  output$pantalla_acceso_app <- renderUI({
+    if (isTRUE(autenticado())) return(ui_aplicacion)
+    tagList(
+      div(class = "acceso-app",
+        div(class = "acceso-app__tarjeta",
+          tags$img(src = "logo-la-machacada.png", class = "acceso-app__logo", alt = "La Machacada Ganadería"),
+          h2(class = "acceso-app__titulo", "Acceso a la aplicación"),
+          p(class = "acceso-app__ayuda", "Ingresa la contraseña para continuar."),
+          passwordInput("contrasena_entrada_app", "Contraseña"),
+          actionButton("entrar_app", "Entrar", class = "btn-primary")
+        )
+      )
+    )
+  })
+
+  observeEvent(input$entrar_app, {
+    clave_ingresada <- if (is.null(input$contrasena_entrada_app)) "" else as.character(input$contrasena_entrada_app)
+    if (identical(clave_ingresada, password_app)) {
+      autenticado(TRUE)
+      updateTextInput(session, "contrasena_entrada_app", value = "")
+    }
+  }, ignoreInit = TRUE)
+
+  observeEvent(autenticado(), {
+    if (isTRUE(autenticado())) server_aplicacion(input, output, session)
+  }, ignoreInit = TRUE)
 }
 
 shinyApp(ui, server)
