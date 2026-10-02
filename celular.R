@@ -2314,7 +2314,11 @@ server_aplicacion <- function(input, output, session) {
 ui <- fluidPage(
   tags$head(
     tags$meta(name = "viewport", content = "width=device-width, initial-scale=1, viewport-fit=cover"),
-    tags$style(HTML("
+    tags$meta(name = "theme-color", content = "#173a63"),
+    tags$link(rel = "icon", type = "image/png", sizes = "32x32", href = "app-icon-32.png"),
+    tags$link(rel = "apple-touch-icon", sizes = "180x180", href = "apple-touch-icon.png"),
+    tags$link(rel = "manifest", href = "site.webmanifest"),
+    tags$style(HTML(" 
       html, body { min-height: 100%; margin: 0; background: #edf3f8; }
       .acceso-app { min-height: 100vh; display: flex; align-items: center; justify-content: center;
         padding: 24px; background: linear-gradient(145deg, #173a63, #2f6b9a); }

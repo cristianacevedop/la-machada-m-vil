@@ -2930,16 +2930,16 @@
   },
   "files": {
     "app.R": {
-      "checksum": "1cefbe103f38fb3f57137ce526a964af"
+      "checksum": "a935a7c90ce3c1dbcd272aaa68295a2e"
     },
     "celular.R": {
-      "checksum": "9f256960c076ebdc7d8068d171c42911"
+      "checksum": "80aa48afeae70d8168a86bacbeb375b3"
     },
     "generar_manifest.R": {
       "checksum": "c53fd99e8cd36d2917e9ab6523d59054"
     },
     "LEEME-publicacion.md": {
-      "checksum": "ca296eb4a58cc90c2dcd201873cb34fd"
+      "checksum": "5b5db6d2aa14ca5dba115c42c10dbc7a"
     },
     "R/db.R": {
       "checksum": "92c56ded41199a207bbddbcb23ae9afb"
@@ -2955,6 +2955,21 @@
     },
     "www/sonido-operacion-finca.mp3": {
       "checksum": "5a6350ab78bea6d4163beab959de85af"
+    },
+    "www/site.webmanifest": {
+      "checksum": "9278989abbb0e3a5a3a89826e1e08b42"
+    },
+    "www/app-icon-32.png": {
+      "checksum": "dccd4406aae056e3cc044e6602b01b57"
+    },
+    "www/apple-touch-icon.png": {
+      "checksum": "5d1bd88a95d3015f4db7e73843f7f923"
+    },
+    "www/app-icon-192.png": {
+      "checksum": "b45344ea9a725dacfe080b985a7703f6"
+    },
+    "www/app-icon-512.png": {
+      "checksum": "de74262c843d89ccb7360242944b8437"
     }
   },
   "users": null
