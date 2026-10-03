@@ -34,6 +34,10 @@ ui_aplicacion <- tagList(
     .module-sidebar button { display: block; width: 100%; margin: 0 0 5px; padding: 11px 13px; border: 0; border-radius: 7px; background: transparent; color: #355440; text-align: left; font-weight: 650; }
     .module-sidebar button:hover, .module-sidebar button.active { background: #dcebd5; color: #1f4d3a; }
     .module-content { flex: 1 1 auto; min-width: 0; background: #fffdf8; border: 1px solid #e4dac5; border-radius: 13px; padding: 22px; box-shadow: 0 2px 10px rgba(63, 72, 53, .07); }
+    .module-back { display: none; width: 100%; margin-bottom: 12px; text-align: left; }
+    .dashboard-filtros { width: 100%; margin: 0 0 12px; }
+    .dashboard-content > [data-dashboard-bloque] { float: none; width: 100%; }
+    .dashboard-layout .dashboard-back { display: none; width: 100%; margin-bottom: 12px; text-align: left; }
     .module-block { display: none; }
     .module-block.active { display: block; }
     .zoom-control { position: fixed; right: 18px; bottom: 18px; z-index: 2000; display: flex; align-items: center; gap: 5px; padding: 6px; background: #fffdf8; border: 1px solid #d8c9ad; border-radius: 10px; box-shadow: 0 3px 13px rgba(45, 57, 42, .2); }
@@ -105,11 +109,24 @@ ui_aplicacion <- tagList(
       .tab-pane > .row > [class*='col-'] h3:first-child { font-size: 20px; line-height: 1.25; }
       .module-layout { display: flex; flex-direction: column; width: 100%; gap: 10px; }
       .module-sidebar {
-        position: sticky; top: 0; z-index: 100; display: flex; flex: 0 0 auto; width: 100%; gap: 6px;
-        overflow-x: auto; overflow-y: hidden; padding: 7px; white-space: nowrap; -webkit-overflow-scrolling: touch;
-        background: #fffdf8; scrollbar-width: thin;
+        position: static; z-index: 100; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+        flex: 0 0 auto; width: 100%; gap: 10px; overflow: visible; padding: 0; white-space: normal;
+        background: transparent; border: 0; box-shadow: none;
       }
-      .module-sidebar button { display: inline-flex; align-items: center; flex: 0 0 auto; width: auto; min-height: 44px; margin: 0; padding: 10px 13px; text-align: center; white-space: normal; }
+      .module-sidebar button {
+        display: flex; align-items: center; justify-content: center; width: 100%; min-height: 82px; margin: 0;
+        padding: 12px; border: 1px solid #d8c9ad; border-radius: 12px; background: #fffdf8; color: #173a63;
+        box-shadow: 0 2px 8px rgba(45, 57, 42, .09); text-align: center; white-space: normal; line-height: 1.3;
+      }
+      .dashboard-layout .dashboard-selector {
+        position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+        width: 100%; overflow: visible; padding: 0; white-space: normal; background: transparent; border: 0; box-shadow: none;
+      }
+      .module-sidebar button.active, .module-sidebar button:hover { background: #e5eff8; border-color: #78a5ca; }
+      .module-back { display: block; }
+      .module-layout.mobile-blocks .module-content { display: none; }
+      .module-layout.mobile-blocks .module-sidebar { display: grid; }
+      .dashboard-content > [data-dashboard-bloque] { width: 100%; margin: 0 0 10px; padding: 14px 12px; }
       .module-content, .dashboard-content { width: 100%; min-width: 0; padding: 15px 12px; overflow: visible; }
       .module-block, [data-dashboard-bloque] { min-width: 0; max-width: 100%; }
       .shiny-input-container { max-width: 100%; }
@@ -292,14 +309,20 @@ ui_aplicacion <- tagList(
           if ($pane.find('#grafica_natalidad, #grafica_inventario_grupo, #grafica_rentabilidad_actividad, #dash_vencimientos').length) {
             if ($pane.data('dashboard-organizado')) return;
             var $dashLayout = $('<div class=\"module-layout dashboard-layout\"></div>');
-            var $dashSide = $('<div class=\"module-sidebar\"></div>');
+            var $dashSide = $('<div class=\"module-sidebar module-selector dashboard-selector\" aria-label=\"Bloques del dashboard\"></div>');
             var $dashContent = $('<div class=\"module-content dashboard-content\"></div>');
+            var $dashFiltros = $('<div class=\"dashboard-filtros\"></div>');
+            var $dashBack = $('<button type=\"button\" class=\"btn btn-default dashboard-back\">← Volver a los bloques</button>');
             var dashIndice = 0;
+            $dashContent.append($dashBack);
             $pane.children('.row').each(function() {
               var $fila = $(this);
               $fila.children().each(function() {
                 var $columna = $(this), $titulo = $columna.children('h3').first();
-                if (!$titulo.length) return;
+                if (!$titulo.length) {
+                  $columna.appendTo($dashFiltros);
+                  return;
+                }
                 var idDash = 'dashboard-bloque-' + dashIndice++;
                 var textoDash = $.trim($titulo.text()) || 'Bloque';
                 var $botonDash = $('<button type=\"button\"></button>').text(textoDash).attr('data-bloque', idDash);
@@ -308,10 +331,16 @@ ui_aplicacion <- tagList(
               });
             });
             $pane.children('.row').remove();
+            $pane.append($dashFiltros);
             $dashLayout.append($dashSide).append($dashContent);
             $pane.append($dashLayout).data('dashboard-organizado', true);
-            $dashContent.children('[data-dashboard-bloque]').hide().first().show();
-            $dashSide.children('button').first().addClass('active');
+            $dashContent.children('[data-dashboard-bloque]').hide();
+            if (window.matchMedia('(max-width: 767px)').matches) {
+              $dashContent.hide();
+            } else {
+              $dashContent.children('[data-dashboard-bloque]').first().show();
+              $dashSide.children('button').first().addClass('active');
+            }
             return;
           }
           if ($pane.data('bloques-convertidos')) return;
@@ -328,9 +357,11 @@ ui_aplicacion <- tagList(
             });
           });
           if (!bloques.length) return;
-          var $layout = $('<div class=\"module-layout\"></div>');
-          var $sidebar = $('<div class=\"module-sidebar\"></div>');
+          var $layout = $('<div class=\"module-layout module-section-layout\"></div>');
+          var $sidebar = $('<div class=\"module-sidebar module-selector\" aria-label=\"Apartados del módulo\"></div>');
           var $content = $('<div class=\"module-content\"></div>');
+          var $back = $('<button type=\"button\" class=\"btn btn-default module-back\">← Volver a los apartados</button>');
+          $content.append($back);
           bloques.forEach(function(bloque, indice) {
             var id = ($pane.attr('id') || 'modulo') + '-bloque-' + indice;
             var $boton = $('<button type=\"button\"></button>').text(bloque.titulo).attr('data-bloque', id);
@@ -343,6 +374,10 @@ ui_aplicacion <- tagList(
           $pane.children('.row').remove();
           $layout.append($sidebar).append($content);
           $pane.append($layout).data('bloques-convertidos', true);
+          if (window.matchMedia('(max-width: 767px)').matches) {
+            $layout.addClass('mobile-blocks');
+            $content.hide();
+          }
           if (window.Shiny && Shiny.bindAll) Shiny.bindAll($pane[0]);
         }); }, 900);
         $(document).on('click', '.module-sidebar button', function() {
@@ -353,6 +388,41 @@ ui_aplicacion <- tagList(
           $layout.find('#' + id).addClass('active');
           $layout.find('[data-dashboard-bloque]').hide();
           $layout.find('[data-dashboard-bloque]').filter(function() { return $(this).attr('data-dashboard-bloque') === id; }).show();
+          if (window.matchMedia('(max-width: 767px)').matches) {
+            $layout.addClass('mobile-blocks');
+            $layout.find('.module-selector').hide();
+            $layout.find('.module-content').show();
+            $layout.find('.module-back').show();
+            setTimeout(function() {
+              $(window).trigger('resize');
+              if (window.Plotly) $layout.find('.js-plotly-plot').each(function() { Plotly.Plots.resize(this); });
+            }, 50);
+          }
+        });
+        $(document).on('click', '.module-back, .dashboard-back', function() {
+          var $layout = $(this).closest('.module-layout');
+          $layout.find('.module-content').hide();
+          $layout.find('.module-selector').show();
+          $layout.find('.module-back, .dashboard-back').hide();
+        });
+        $(window).on('resize.dashboard-layout', function() {
+          if (window.matchMedia('(min-width: 768px)').matches) {
+            $('.dashboard-layout .dashboard-selector, .dashboard-layout .dashboard-content').show();
+            $('.dashboard-layout .dashboard-back').hide();
+            $('.module-section-layout').removeClass('mobile-blocks');
+            $('.module-section-layout .module-selector, .module-section-layout .module-content').show();
+            $('.module-section-layout .module-back').hide();
+          } else {
+            $('.module-section-layout').each(function() {
+              var $layout = $(this);
+              if (!$layout.hasClass('mobile-blocks')) {
+                $layout.addClass('mobile-blocks');
+                $layout.find('.module-content').hide();
+                $layout.find('.module-selector').show();
+                $layout.find('.module-back').hide();
+              }
+            });
+          }
         });
       });
     "))),
@@ -367,7 +437,6 @@ ui_aplicacion <- tagList(
   tags$audio(id = "audio-operacion-finca", src = "sonido-operacion-finca.mp3", preload = "auto"),
   navbarPage(tags$img(src = "logo-la-machacada.png", class = "brand-logo", alt = "La Machacada Ganadería"),
   tabPanel("Dashboard", fluidRow(
-    column(12, dateRangeInput("dash_rango_fechas", "Rango de fechas", start = Sys.Date() - 365, end = Sys.Date(), format = "yyyy-mm-dd", startview = "year", language = "es")),
     column(3, h3("Ganado"), strong(textOutput("dash_total_animales")), uiOutput("dash_animales_estado")),
     column(3, h3("Inventario"), strong(textOutput("dash_stock_bajo")), textOutput("dash_vencimientos_kpi")),
     column(3, h3("Finanzas"), strong(textOutput("dash_balance")), textOutput("dash_pendiente")),
@@ -1233,8 +1302,8 @@ server_aplicacion <- function(input, output, session) {
             AND e.observaciones LIKE '%' || a2.animal_id || '%'
         )
       ORDER BY fecha")
-    if (nrow(x) && !is.null(input$dash_rango_fechas) && length(input$dash_rango_fechas) == 2) {
-      fechas_filtro <- as.Date(input$dash_rango_fechas)
+    if (nrow(x)) {
+      fechas_filtro <- rango_dashboard()
       x <- x[as.Date(x$fecha) >= fechas_filtro[1] & as.Date(x$fecha) <= fechas_filtro[2], , drop = FALSE]
     }
     if (!nrow(x)) return(plot_ly() %>% layout(title = "Sin partos registrados"))
@@ -1257,7 +1326,8 @@ server_aplicacion <- function(input, output, session) {
   })
   output$grafica_rentabilidad_actividad <- renderPlot({
     recargar()
-    x <- dbGetQuery(conexion, "SELECT CASE WHEN m.origen_tipo='VENTA_GANADO' THEN 'Ganado' WHEN m.origen_tipo='PRODUCCION_LECHE' THEN 'Leche' WHEN m.tipo='INGRESO' THEN COALESCE(NULLIF(m.concepto,''),'Otros ingresos') ELSE COALESCE(c.nombre,'Otros egresos') END AS actividad, m.tipo AS tipo, SUM(m.valor_total) AS valor FROM movimientos_financieros m LEFT JOIN categorias_financieras c ON c.categoria_financiera_id=m.categoria_financiera_id WHERE m.anulado_en IS NULL AND date(m.fecha) BETWEEN date(?) AND date(?) GROUP BY actividad, m.tipo ORDER BY actividad", params = list(input$dash_rango_fechas[1], input$dash_rango_fechas[2]))
+    rango <- rango_dashboard()
+    x <- dbGetQuery(conexion, "SELECT CASE WHEN m.origen_tipo='VENTA_GANADO' THEN 'Ganado' WHEN m.origen_tipo='PRODUCCION_LECHE' THEN 'Leche' WHEN m.tipo='INGRESO' THEN COALESCE(NULLIF(m.concepto,''),'Otros ingresos') ELSE COALESCE(c.nombre,'Otros egresos') END AS actividad, m.tipo AS tipo, SUM(m.valor_total) AS valor FROM movimientos_financieros m LEFT JOIN categorias_financieras c ON c.categoria_financiera_id=m.categoria_financiera_id WHERE m.anulado_en IS NULL AND date(m.fecha) BETWEEN date(?) AND date(?) GROUP BY actividad, m.tipo ORDER BY actividad", params = as.list(rango))
     if (!nrow(x)) { plot.new(); text(.5, .5, 'Sin movimientos financieros'); return() }
     actividades <- unique(x$actividad); ingresos <- sapply(actividades, function(a) sum(x$valor[x$actividad == a & x$tipo == 'INGRESO'])); egresos <- sapply(actividades, function(a) sum(x$valor[x$actividad == a & x$tipo == 'EGRESO'])); utilidad <- ingresos - egresos
     valores <- rbind(Ingresos = ingresos, Egresos = egresos, Utilidad = utilidad)
@@ -1270,9 +1340,10 @@ server_aplicacion <- function(input, output, session) {
     if (periodo == 'ANO') return(format(fecha, '%Y'))
     format(fecha, '%Y-%m')
   }
+  rango_dashboard <- function() as.character(c(Sys.Date() - 365, Sys.Date()))
   filtrar_rango_dashboard <- function(x, columna = "fecha") {
-    rango <- input$dash_rango_fechas
-    if (!is.null(rango) && length(rango) == 2 && nrow(x)) {
+    rango <- rango_dashboard()
+    if (nrow(x)) {
       fechas <- as.Date(x[[columna]])
       x <- x[fechas >= as.Date(rango[1]) & fechas <= as.Date(rango[2]), , drop = FALSE]
     }
