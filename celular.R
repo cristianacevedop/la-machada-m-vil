@@ -394,10 +394,30 @@ ui_aplicacion <- tagList(
           'Comercial y finanzas': document.getElementById('audio-comercial-finanzas'),
           'Operación de finca': document.getElementById('audio-operacion-finca')
         };
+        var sonidosModulosSilenciados = false;
+        try { sonidosModulosSilenciados = localStorage.getItem('machada-sonidos-silenciados') === 'true'; } catch (e) {}
+        function actualizarBotonSonido() {
+          var boton = document.getElementById('sonido-toggle');
+          if (!boton) return;
+          boton.textContent = sonidosModulosSilenciados ? '🔇' : '🔊';
+          boton.title = sonidosModulosSilenciados ? 'Activar efectos de sonido' : 'Silenciar efectos de sonido';
+          boton.setAttribute('aria-label', boton.title);
+          boton.setAttribute('aria-pressed', String(sonidosModulosSilenciados));
+        }
+        $(document).on('click', '#sonido-toggle', function() {
+          sonidosModulosSilenciados = !sonidosModulosSilenciados;
+          try { localStorage.setItem('machada-sonidos-silenciados', String(sonidosModulosSilenciados)); } catch (e) {}
+          if (sonidosModulosSilenciados) Object.keys(sonidosModulos).forEach(function(nombre) {
+            var audio = sonidosModulos[nombre];
+            if (audio) { audio.pause(); audio.currentTime = 0; }
+          });
+          actualizarBotonSonido();
+        });
+        actualizarBotonSonido();
         $(document).on('click', '.navbar-nav > li.dropdown > a.dropdown-toggle', function() {
           var nombre = $.trim($(this).clone().children().remove().end().text());
           var audio = sonidosModulos[nombre];
-          if (audio) { audio.currentTime = 0; audio.play().catch(function() {}); }
+          if (audio && !sonidosModulosSilenciados) { audio.currentTime = 0; audio.play().catch(function() {}); }
         });
         var zoomActual = 1;
         function actualizarZoom() {
@@ -586,7 +606,8 @@ ui_aplicacion <- tagList(
     tags$button(id = "cola-offline-abrir", class = "cola-offline-boton", type = "button", title = "Registros sin conexión", `aria-label` = "Ver registros sin conexión", "⟳", tags$span(id = "cola-offline-contador", class = "cola-offline-contador", "0")),
     tags$button(id = "zoom-menos", type = "button", title = "Reducir zoom", "−"),
     tags$span(id = "zoom-nivel", class = "zoom-level", "100%"),
-    tags$button(id = "zoom-mas", type = "button", title = "Aumentar zoom", "+")
+    tags$button(id = "zoom-mas", type = "button", title = "Aumentar zoom", "+"),
+    tags$button(id = "sonido-toggle", type = "button", class = "boton-sonido", title = "Silenciar efectos de sonido", `aria-label` = "Silenciar efectos de sonido", `aria-pressed` = "false", "🔊")
   ),
   tags$div(id = "cola-offline-modal", class = "cola-offline-modal", style = "display:none", role = "dialog", `aria-modal` = "true", `aria-labelledby` = "cola-offline-titulo",
     tags$div(class = "cola-offline-panel",
