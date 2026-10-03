@@ -44,6 +44,17 @@ ui_aplicacion <- tagList(
     .zoom-control button { width: 32px; height: 30px; padding: 0; border: 0; border-radius: 6px; background: #2f6b50; color: white; font-size: 19px; line-height: 28px; font-weight: 700; }
     .zoom-control button:hover { background: #23533e; }
     .zoom-control .zoom-level { min-width: 48px; text-align: center; color: #355440; font-size: 12px; font-weight: 700; }
+    .cola-offline-boton { position: relative; min-width: 38px; min-height: 38px; padding: 4px 9px; border: 0; border-radius: 7px; background: #2f6b50; color: #fff; font-size: 18px; }
+    .cola-offline-contador { position: absolute; top: -7px; right: -7px; min-width: 18px; padding: 1px 5px; border-radius: 10px; background: #b3261e; color: white; font-size: 11px; line-height: 16px; }
+    .cola-offline-modal { position: fixed; inset: 0; z-index: 6000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(12, 28, 43, .58); }
+    .cola-offline-panel { width: min(980px, 100%); max-height: min(82vh, 760px); overflow: auto; padding: 20px; border-radius: 14px; background: #fffdf8; box-shadow: 0 12px 40px rgba(0,0,0,.28); }
+    .cola-offline-cabecera { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .cola-offline-cabecera h3 { margin: 0; }
+    .cola-offline-tabla-wrap { width: 100%; overflow-x: auto; }
+    .cola-offline-tabla { min-width: 680px; }
+    .cola-offline-detalle { display: block; margin-top: 4px; color: #5b6670; white-space: normal; }
+    .cola-offline-limpiar { margin-left: 6px; padding: 3px 7px; border: 1px solid #b8c8d6; border-radius: 6px; background: #fff; color: #173a63; }
+    .cola-offline-nota { margin: 12px 0 0; color: #5b6670; font-size: 13px; }
     .genealogia-arbol { margin: 12px 0 18px; text-align: center; }
     .genealogia-fila { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
     .genealogia-nodo { min-width: 150px; max-width: 220px; padding: 10px 12px; background: #eef5e9; border: 1px solid #b9d0ac; border-radius: 9px; color: #244b35; box-shadow: 0 2px 6px rgba(40,70,45,.08); }
@@ -134,11 +145,12 @@ ui_aplicacion <- tagList(
       .selectize-input { display: flex !important; align-items: center; }
       .btn, .btn-group > .btn { min-height: 44px; padding: 10px 14px; white-space: normal; touch-action: manipulation; }
       .radio, .checkbox, .radio-inline, .checkbox-inline { min-height: 36px; padding-top: 7px; }
-      .table { display: block; width: 100%; max-width: 100%; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; touch-action: pan-x; }
+      .table { display: block; width: 100%; max-width: 100%; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
       .table > thead, .table > tbody, .table > tfoot { white-space: nowrap; }
       .shiny-plot-output, .plotly, .plot-container, .js-plotly-plot { width: 100% !important; max-width: 100% !important; }
       .zoom-control { right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); z-index: 2500; gap: 4px; padding: 5px; }
       .zoom-control button { width: 38px; height: 38px; }
+      .cola-offline-panel { max-height: calc(100dvh - 24px); padding: 15px 12px; }
       .modal-dialog { width: auto; max-width: none; margin: 8px; }
       .modal-content { max-height: calc(100dvh - 16px); overflow-y: auto; }
       .modal-body { max-height: calc(100dvh - 150px); overflow-y: auto; }
@@ -207,6 +219,150 @@ ui_aplicacion <- tagList(
     tags$script(HTML("\
       $(function() {
         setTimeout(function() { $('#intro-splash').remove(); }, 2400);
+        var colaDB = null, colaSincronizando = false, colaOperacionActiva = null;
+        var colaAbierta = new Promise(function(resolve, reject) {
+          if (!window.indexedDB) { reject(new Error('Este navegador no permite guardar registros locales.')); return; }
+          var solicitud = indexedDB.open('la-machada-cola-offline', 1);
+          solicitud.onupgradeneeded = function() {
+            var db = solicitud.result;
+            if (!db.objectStoreNames.contains('registros')) db.createObjectStore('registros', {keyPath: 'id'});
+          };
+          solicitud.onsuccess = function() { colaDB = solicitud.result; resolve(colaDB); };
+          solicitud.onerror = function() { reject(solicitud.error || new Error('No se pudo abrir el almacenamiento local.')); };
+        });
+        function colaLeerTodos() {
+          return colaAbierta.then(function(db) { return new Promise(function(resolve, reject) {
+            var tx = db.transaction('registros', 'readonly'), req = tx.objectStore('registros').getAll();
+            req.onsuccess = function() { resolve(req.result || []); }; req.onerror = function() { reject(req.error); };
+          }); });
+        }
+        function colaGuardar(registro) {
+          return colaAbierta.then(function(db) { return new Promise(function(resolve, reject) {
+            var tx = db.transaction('registros', 'readwrite'); tx.objectStore('registros').put(registro);
+            tx.oncomplete = function() { resolve(); }; tx.onerror = function() { reject(tx.error); };
+          }); });
+        }
+        function colaActualizar(id, cambios) {
+          return colaAbierta.then(function(db) { return new Promise(function(resolve, reject) {
+            var tx = db.transaction('registros', 'readwrite'), store = tx.objectStore('registros'), req = store.get(id);
+            req.onsuccess = function() { if (req.result) store.put(Object.assign(req.result, cambios)); };
+            tx.oncomplete = function() { resolve(); }; tx.onerror = function() { reject(tx.error); };
+          }); });
+        }
+        function colaNuevoId() {
+          if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+          return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16);
+          });
+        }
+        function colaEscribirTabla() {
+          return colaLeerTodos().then(function(registros) {
+            registros.sort(function(a, b) { return b.creado - a.creado; });
+            var html = `<div class='cola-offline-tabla-wrap'><table class='table cola-offline-tabla'><thead><tr><th>Registro</th><th>Fecha</th><th>Pendientes</th><th>Enviándose</th><th>Enviados <button id='cola-offline-limpiar' class='cola-offline-limpiar' type='button' title='Limpiar enviados' aria-label='Limpiar enviados'>🖌️</button></th></tr></thead><tbody>`;
+            if (!registros.length) html += `<tr><td colspan='5'>No hay registros en la cola.</td></tr>`;
+            registros.forEach(function(r) {
+              var celda = function(estado) {
+                if (r.estado !== estado) return '<td></td>';
+                var texto = estado === 'enviado' ? '✓ Enviado' : estado === 'enviando' ? '⟳ Enviándose' : '• Pendiente';
+                if (r.error) texto += '<br><small>' + $('<div>').text(r.error).html() + '</small>';
+                return '<td>' + texto + '</td>';
+              };
+              var resumen = r.resumen ? '<small class=\"cola-offline-detalle\">' + $('<div>').text(r.resumen).html() + '</small>' : '';
+              html += '<tr><td><strong>' + $('<div>').text(r.titulo).html() + '</strong>' + resumen + '</td><td>' + new Date(r.creado).toLocaleString() + '</td>' + celda('pendiente') + celda('enviando') + celda('enviado') + '</tr>';
+            });
+            html += '</tbody></table></div>';
+            $('#cola-offline-contenido').html(html);
+            var pendientes = registros.filter(function(r) { return r.estado !== 'enviado'; }).length;
+            $('#cola-offline-contador').text(pendientes).toggle(pendientes > 0);
+            $('#cola-offline-conexion').text(navigator.onLine ? 'Conexión a internet disponible. La app sincroniza al recuperar también la conexión con el servidor.' : 'Sin conexión: los nuevos registros se conservan pendientes en este dispositivo.');
+          }).catch(function(e) { $('#cola-offline-contenido').text(e.message || 'No se pudo leer la cola local.'); });
+        }
+        function colaConectada() {
+          var ws = window.Shiny && Shiny.shinyapp && Shiny.shinyapp.$socket;
+          return navigator.onLine && ws && ws.readyState === WebSocket.OPEN;
+        }
+        function colaProcesarSiguiente() {
+          if (colaSincronizando || !colaConectada()) return;
+          colaLeerTodos().then(function(registros) {
+            var siguiente = registros.find(function(r) { return r.estado === 'pendiente' && !r.error; });
+            if (!siguiente) return;
+            colaSincronizando = true; colaOperacionActiva = siguiente.id;
+            colaActualizar(siguiente.id, {estado: 'enviando', error: null}).then(function() {
+              colaEscribirTabla();
+              Shiny.setInputValue('offline_sync_request', {id: siguiente.id, accion: siguiente.accion, titulo: siguiente.titulo, campos: siguiente.campos}, {priority: 'event'});
+            }).catch(function() { colaSincronizando = false; colaOperacionActiva = null; });
+          }).catch(function() {});
+        }
+        Shiny.addCustomMessageHandler('offline_sync_replay', function(m) {
+          if (!m || m.id !== colaOperacionActiva) return;
+          if (m.estado === 'enviado') {
+            colaActualizar(m.id, {estado: 'enviado', error: null}).then(function() { colaSincronizando = false; colaOperacionActiva = null; colaEscribirTabla(); colaProcesarSiguiente(); });
+            return;
+          }
+          if (m.estado === 'revisar' || m.estado === 'error') {
+            colaActualizar(m.id, {estado: 'pendiente', error: m.mensaje || 'No se pudo confirmar el guardado; revisa antes de volver a enviarlo.'}).then(function() { colaSincronizando = false; colaOperacionActiva = null; colaEscribirTabla(); });
+            return;
+          }
+          Object.keys(m.campos || {}).forEach(function(id) { Shiny.setInputValue(id, m.campos[id], {priority: 'event'}); });
+          setTimeout(function() {
+            if (!colaConectada()) { colaActualizar(m.id, {estado: 'pendiente'}).then(function() { colaSincronizando = false; colaOperacionActiva = null; colaEscribirTabla(); }); return; }
+            var actual = Number(Shiny.shinyapp.$inputValues[m.accion] || 0);
+            Shiny.setInputValue(m.accion, actual + 1, {priority: 'event'});
+          }, 80);
+        });
+        Shiny.addCustomMessageHandler('offline_sync_resultado', function(m) {
+          if (!m || m.id !== colaOperacionActiva) return;
+          var cambios = m.estado === 'enviado' ? {estado: 'enviado', error: null} : {estado: 'pendiente', error: m.mensaje || 'No se confirmó el guardado. Revisa el registro antes de reintentar.'};
+          colaActualizar(m.id, cambios).then(function() { colaSincronizando = false; colaOperacionActiva = null; colaEscribirTabla(); if (m.estado === 'enviado') colaProcesarSiguiente(); });
+        });
+        $('#cola-offline-abrir').on('click', function() { $('#cola-offline-modal').css('display', 'flex'); colaEscribirTabla(); });
+        $('#cola-offline-cerrar').on('click', function() { $('#cola-offline-modal').hide(); });
+        $('#cola-offline-modal').on('click', function(e) { if (e.target === this) $(this).hide(); });
+        $(document).on('click', '#cola-offline-limpiar', function() {
+          colaAbierta.then(function(db) { return new Promise(function(resolve, reject) {
+            var tx = db.transaction('registros', 'readwrite'), store = tx.objectStore('registros'), req = store.openCursor();
+            req.onsuccess = function() { var cursor = req.result; if (!cursor) return; if (cursor.value.estado === 'enviado') cursor.delete(); cursor.continue(); };
+            tx.oncomplete = resolve; tx.onerror = function() { reject(tx.error); };
+          }); }).then(colaEscribirTabla);
+        });
+        document.addEventListener('click', function(e) {
+          var boton = e.target.closest && e.target.closest('button[id^=guardar_]');
+          if (!boton || colaConectada()) return;
+          if (boton.id.indexOf('guardar_edicion_') === 0 || boton.id === 'guardar_estado') {
+            e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            alert('Esta acción requiere conexión. Solo se guardan sin conexión los registros nuevos.'); return;
+          }
+          e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          var contenedor = boton.closest('.module-block') || boton.closest('[data-dashboard-bloque]') || boton.closest('.tab-pane') || document;
+          var entrada = window.Shiny && Shiny.shinyapp && Shiny.shinyapp.$inputValues || {}, campos = {};
+          Object.keys(entrada).forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el && contenedor.contains(el) && !el.matches('button')) campos[id] = entrada[id];
+          });
+          var resumen = Object.keys(campos).map(function(id) {
+            var valor = campos[id], elemento = document.getElementById(id);
+            if (valor === null || typeof valor === 'undefined' || valor === '') return null;
+            if (Array.isArray(valor)) valor = valor.join(', ');
+            else if (typeof valor === 'object') valor = JSON.stringify(valor);
+            var contenedorCampo = elemento && elemento.closest('.shiny-input-container');
+            var etiqueta = contenedorCampo && contenedorCampo.querySelector('label.control-label');
+            var nombre = etiqueta ? $.trim(etiqueta.textContent) : id.replace(/_/g, ' ');
+            return nombre + ': ' + String(valor).replace(/\\s+/g, ' ').slice(0, 100);
+          }).filter(Boolean).slice(0, 8).join(' · ').slice(0, 700);
+          var registro = {id: colaNuevoId(), accion: boton.id, titulo: $.trim($(boton).text()) || boton.id, resumen: resumen, creado: Date.now(), estado: 'pendiente', campos: campos, error: null};
+          colaGuardar(registro).then(colaEscribirTabla).then(function() { $('#cola-offline-modal').css('display', 'flex'); })
+            .catch(function(err) { alert('No se pudo guardar el registro en esta app: ' + (err.message || err)); });
+        }, true);
+        window.addEventListener('online', function() { colaEscribirTabla(); colaProcesarSiguiente(); });
+        window.addEventListener('focus', colaProcesarSiguiente);
+        document.addEventListener('visibilitychange', function() { if (!document.hidden) colaProcesarSiguiente(); });
+        $(document).on('shiny:connected', colaProcesarSiguiente);
+        setInterval(colaProcesarSiguiente, 3000);
+        colaAbierta.then(function(db) { return new Promise(function(resolve, reject) {
+          var tx = db.transaction('registros', 'readwrite'), store = tx.objectStore('registros'), req = store.openCursor();
+          req.onsuccess = function() { var cursor = req.result; if (!cursor) return; if (cursor.value.estado === 'enviando') { var r = cursor.value; r.estado = 'pendiente'; r.error = null; cursor.update(r); } cursor.continue(); };
+          tx.oncomplete = resolve; tx.onerror = function() { reject(tx.error); };
+        }); }).then(function() { colaEscribirTabla(); colaProcesarSiguiente(); });
         var sonidoInicioReproducido = false;
         function reproducirSonidoInicio() {
           if (sonidoInicioReproducido) return;
@@ -427,9 +583,18 @@ ui_aplicacion <- tagList(
       });
     "))),
   tags$div(class = "zoom-control", role = "group", `aria-label` = "Zoom de la interfaz",
+    tags$button(id = "cola-offline-abrir", class = "cola-offline-boton", type = "button", title = "Registros sin conexión", `aria-label` = "Ver registros sin conexión", "⟳", tags$span(id = "cola-offline-contador", class = "cola-offline-contador", "0")),
     tags$button(id = "zoom-menos", type = "button", title = "Reducir zoom", "−"),
     tags$span(id = "zoom-nivel", class = "zoom-level", "100%"),
     tags$button(id = "zoom-mas", type = "button", title = "Aumentar zoom", "+")
+  ),
+  tags$div(id = "cola-offline-modal", class = "cola-offline-modal", style = "display:none", role = "dialog", `aria-modal` = "true", `aria-labelledby` = "cola-offline-titulo",
+    tags$div(class = "cola-offline-panel",
+      tags$div(class = "cola-offline-cabecera", tags$h3(id = "cola-offline-titulo", "Estado de registros"), tags$button(id = "cola-offline-cerrar", type = "button", class = "btn btn-default", "Cerrar")),
+      tags$div(id = "cola-offline-contenido"),
+      tags$p(id = "cola-offline-conexion", class = "cola-offline-nota"),
+      tags$p(class = "cola-offline-nota", "Los registros pendientes se guardan en el almacenamiento privado de esta app en este celular. Solo se consideran enviados cuando la nube confirma el guardado.")
+    )
   ),
   tags$div(id = "intro-splash", class = "intro-splash", tags$img(src = "logo-la-machacada.png", alt = "La Machacada Ganadería"), tags$div(class = "splash-bienvenida", "B I E N V E N I D O")),
   tags$audio(id = "audio-ganado", src = "sonido-ganado.mp3", preload = "auto"),
@@ -845,6 +1010,70 @@ server_aplicacion <- function(input, output, session) {
 
   conexion <- abrir_base(ruta_base)
   onSessionEnded(function() dbDisconnect(conexion))
+  operacion_offline <- new.env(parent = emptyenv())
+  operacion_offline$id <- NULL
+  operacion_offline$accion <- NULL
+  registrar_estado_offline <- function(id, estado, mensaje = NA_character_) {
+    tryCatch(dbExecute(conexion,
+      "UPDATE cola_sincronizacion_app SET estado=?, mensaje=?, actualizado_en=now() WHERE operacion_id=CAST(? AS uuid)",
+      params = list(estado, mensaje, id)), error = function(e) NULL)
+  }
+  showNotification <- function(...) {
+    argumentos <- list(...)
+    tipo <- if (is.null(argumentos$type)) "default" else as.character(argumentos$type)[1]
+    texto <- if (length(argumentos) && is.character(argumentos[[1]])) paste(argumentos[[1]], collapse = " ") else ""
+    resultado <- do.call(shiny::showNotification, argumentos)
+    id <- operacion_offline$id
+    accion <- operacion_offline$accion
+    if (!is.null(id) && identical(tipo, "message") && grepl(
+      "guardado correctamente|Grupo creado|Movimiento de grupo registrado|Pesaje guardado|Estado actualizado|Potrero creado|Infraestructura registrada|Ocupación registrada|Evento reproductivo guardado|Nacimiento registrado|Animal existente vinculado al parto|Destete registrado|Evento sanitario guardado|Producto creado|Movimiento de inventario guardado|Activo guardado|Mantenimiento guardado|Movimiento financiero guardado|Personal registrado y disponible|Comprador guardado|Venta de leche registrada|Compra de ganado registrada|Venta registrada, ingreso financiero creado",
+      texto, ignore.case = TRUE)) {
+      registrar_estado_offline(id, "ENVIADO")
+      session$sendCustomMessage("offline_sync_resultado", list(id = id, estado = "enviado"))
+      operacion_offline$id <- NULL
+      operacion_offline$accion <- NULL
+    } else if (!is.null(id) && identical(tipo, "error")) {
+      later::later(function() {
+        if (!identical(operacion_offline$id, id)) return()
+        mensaje <- if (nzchar(texto)) texto else paste("No se pudo completar", accion)
+        registrar_estado_offline(id, "ERROR", mensaje)
+        session$sendCustomMessage("offline_sync_resultado", list(id = id, estado = "error", mensaje = mensaje))
+        operacion_offline$id <- NULL
+        operacion_offline$accion <- NULL
+      }, delay = 30)
+    }
+    resultado
+  }
+  observeEvent(input$offline_sync_request, {
+    solicitud <- input$offline_sync_request
+    if (is.null(solicitud$id) || is.null(solicitud$accion) ||
+        !grepl("^guardar_[A-Za-z0-9_]+$", solicitud$accion) ||
+        startsWith(solicitud$accion, "guardar_edicion_") || identical(solicitud$accion, "guardar_estado")) return()
+    tryCatch({
+      existente <- dbGetQuery(conexion,
+        "SELECT estado FROM cola_sincronizacion_app WHERE operacion_id=CAST(? AS uuid)",
+        params = list(as.character(solicitud$id)))
+      if (nrow(existente)) {
+        estado <- as.character(existente$estado[1])
+        if (identical(estado, "ENVIADO")) {
+          session$sendCustomMessage("offline_sync_replay", list(id = solicitud$id, estado = "enviado"))
+        } else {
+          session$sendCustomMessage("offline_sync_replay", list(id = solicitud$id, estado = "revisar",
+            mensaje = "El servidor ya recibió este intento, pero no confirmó su resultado. Verifica el registro antes de repetirlo."))
+        }
+        return()
+      }
+      dbExecute(conexion,
+        "INSERT INTO cola_sincronizacion_app(operacion_id, accion, estado) VALUES (CAST(? AS uuid), ?, 'EN_PROCESO')",
+        params = list(as.character(solicitud$id), as.character(solicitud$accion)))
+      operacion_offline$id <- as.character(solicitud$id)
+      operacion_offline$accion <- as.character(solicitud$accion)
+      session$sendCustomMessage("offline_sync_replay", list(id = solicitud$id, accion = solicitud$accion, campos = solicitud$campos))
+    }, error = function(e) {
+      session$sendCustomMessage("offline_sync_replay", list(id = solicitud$id, estado = "error",
+        mensaje = paste("No se pudo preparar la sincronización:", conditionMessage(e))))
+    })
+  }, ignoreInit = TRUE)
   recargar <- reactiveVal(0L)
   formato_pesos <- function(x) {
     ifelse(is.na(x), "—", paste0("$ ", format(round(as.numeric(x), 2), big.mark = ".", decimal.mark = ",", nsmall = 2)))
