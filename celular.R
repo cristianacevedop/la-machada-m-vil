@@ -717,6 +717,9 @@ ui_aplicacion <- tagList(
   tabPanel("Ficha del animal", sidebarLayout(
     sidebarPanel(
       h3("Registrar cambio de estado"),
+      selectizeInput("estado_animal", "Animal", choices = character(0),
+        options = list(placeholder = "Busca por ID, arete o nombre...", maxOptions = 500L,
+          searchField = list("label", "value"))),
       selectInput("estado_nuevo", "Nuevo estado", c(
         "Activo" = "ACTIVO", "Sin marcar" = "SIN_MARCAR", "En observación" = "OBSERVACION", "En tratamiento" = "TRATAMIENTO",
         "En recuperación" = "RECUPERACION", "En venta" = "VENTA", "Vendido" = "VENDIDO",
@@ -1142,6 +1145,9 @@ server_aplicacion <- function(input, output, session) {
     opciones_animales <- etiqueta_animales()
     updateSelectInput(session, "mov_animal", choices = opciones_animales)
     updateSelectInput(session, "peso_animal", choices = opciones_animales)
+    estado_animal_seleccionado <- isolate(input$estado_animal)
+    estado_animal_actual <- if (!is.null(estado_animal_seleccionado) && nzchar(estado_animal_seleccionado) && estado_animal_seleccionado %in% unname(opciones_animales)) estado_animal_seleccionado else character(0)
+    updateSelectizeInput(session, "estado_animal", choices = opciones_animales, selected = estado_animal_actual, server = TRUE)
     ficha_seleccionada <- isolate(input$ficha_animal)
     ficha_actual <- if (!is.null(ficha_seleccionada) && nzchar(ficha_seleccionada) && ficha_seleccionada %in% unname(opciones_animales)) ficha_seleccionada else if (length(opciones_animales)) unname(opciones_animales)[1] else character(0)
     updateSelectizeInput(session, "ficha_animal", choices = opciones_animales, selected = ficha_actual, server = TRUE)
@@ -1346,8 +1352,10 @@ server_aplicacion <- function(input, output, session) {
     grupo_actual <- dbGetQuery(conexion, "SELECT grupo_id FROM animal_grupo_historial WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL ORDER BY fecha_inicio DESC LIMIT 1", params = list(id))
     grupos_edicion <- dbGetQuery(conexion, "SELECT grupo_id, nombre FROM grupos WHERE activo=1 ORDER BY nombre")
     grupo_seleccionado <- if (nrow(grupo_actual)) as.character(grupo_actual$grupo_id[1]) else ""
-    estado_actual <- dbGetQuery(conexion, "SELECT estado_codigo FROM animal_estado_historial WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL ORDER BY fecha_inicio DESC, estado_historial_id DESC LIMIT 1", params = list(id))
+    estado_actual <- dbGetQuery(conexion, "SELECT estado_historial_id, estado_codigo, fecha_inicio, motivo FROM animal_estado_historial WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL ORDER BY fecha_inicio DESC, estado_historial_id DESC LIMIT 1", params = list(id))
     estado_seleccionado <- if (nrow(estado_actual)) estado_actual$estado_codigo[1] else "ACTIVO"
+    estado_fecha_inicio <- if (nrow(estado_actual) && !is.na(estado_actual$fecha_inicio[1])) as.Date(estado_actual$fecha_inicio[1]) else Sys.Date()
+    estado_motivo <- if (nrow(estado_actual) && !is.na(estado_actual$motivo[1])) as.character(estado_actual$motivo[1]) else ""
     session$userData$animal_edicion_id <- id
     showModal(modalDialog(title = paste("Editar animal:", id),
       textInput("editar_animal_nombre", "Nombre", value = ifelse(is.na(animal$nombre[1]), "", animal$nombre[1])),
@@ -1358,6 +1366,8 @@ server_aplicacion <- function(input, output, session) {
       selectInput("editar_animal_padre", "Padre", choices = c("Sin registrar" = "", opciones(padres)), selected = padre_edicion),
       selectInput("editar_animal_grupo", "Grupo actual", choices = c("Sin grupo" = "", setNames(grupos_edicion$grupo_id, grupos_edicion$nombre)), selected = grupo_seleccionado),
       selectInput("editar_animal_estado", "Estado actual", choices = c("Activo" = "ACTIVO", "Sin marcar" = "SIN_MARCAR", "En observación" = "OBSERVACION", "En tratamiento" = "TRATAMIENTO", "En recuperación" = "RECUPERACION", "En venta" = "VENTA", "Vendido" = "VENDIDO", "Muerto" = "MUERTO", "Descartado" = "DESCARTADO", "Trasladado" = "TRASLADADO"), selected = estado_seleccionado),
+      dateInput("editar_animal_estado_fecha_inicio", "Fecha de inicio del estado", value = estado_fecha_inicio, format = "yyyy-mm-dd", language = "es"),
+      textInput("editar_animal_estado_motivo", "Motivo del estado", value = estado_motivo),
       textInput("editar_animal_raza", "Raza o composición", value = ifelse(is.na(animal$raza_composicion[1]), "", animal$raza_composicion[1])),
       textAreaInput("editar_animal_observaciones", "Observaciones", value = ifelse(is.na(animal$observaciones[1]), "", animal$observaciones[1]), rows = 3),
       footer = tagList(modalButton("Cancelar"), actionButton("guardar_edicion_animal", "Guardar cambios", class = "btn-primary"), actionButton("borrar_animal", "BORRAR ANIMAL", class = "btn-danger")), easyClose = FALSE
@@ -1372,6 +1382,11 @@ server_aplicacion <- function(input, output, session) {
     vacio <- function(x) if (is.null(x) || !nzchar(trimws(x))) NA_character_ else trimws(x)
     fecha_entrada <- input$editar_animal_fecha
     fecha <- if (is.null(fecha_entrada) || length(fecha_entrada) == 0L || all(is.na(fecha_entrada)) || !nzchar(trimws(as.character(fecha_entrada[1])))) NA_character_ else as.character(fecha_entrada[1])
+    fecha_estado_entrada <- input$editar_animal_estado_fecha_inicio
+    if (is.null(fecha_estado_entrada) || !length(fecha_estado_entrada) || is.na(fecha_estado_entrada[1]) || !nzchar(trimws(as.character(fecha_estado_entrada[1])))) {
+      showNotification("Indica la fecha de inicio del estado.", type = "error"); return()
+    }
+    fecha_estado <- as.character(fecha_estado_entrada[1])
     tryCatch({
       dbExecute(conexion, "UPDATE animales SET nombre=?, arete_hierro=?, fecha_nacimiento=?, madre_id=?, padre_id=?, raza_composicion=?, observaciones=? WHERE animal_id=?",
         params = list(vacio(input$editar_animal_nombre), vacio(input$editar_animal_arete), fecha, vacio(input$editar_animal_madre), vacio(input$editar_animal_padre), vacio(input$editar_animal_raza), vacio(input$editar_animal_observaciones), id))
@@ -1383,12 +1398,27 @@ server_aplicacion <- function(input, output, session) {
         if (!is.na(grupo_nuevo)) dbExecute(conexion, "INSERT INTO animal_grupo_historial(animal_id, grupo_id, fecha_inicio, motivo) VALUES (?, ?, date('now','localtime'), 'Grupo actualizado desde edición del animal')", params = list(id, as.integer(grupo_nuevo)))
       }
       estado_nuevo <- vacio(input$editar_animal_estado)
-      estado_anterior <- dbGetQuery(conexion, "SELECT estado_codigo FROM animal_estado_historial WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL ORDER BY fecha_inicio DESC, estado_historial_id DESC LIMIT 1", params = list(id))
+      motivo_estado <- vacio(input$editar_animal_estado_motivo)
+      estado_anterior <- dbGetQuery(conexion, "SELECT estado_historial_id, estado_codigo FROM animal_estado_historial WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL ORDER BY fecha_inicio DESC, estado_historial_id DESC LIMIT 1", params = list(id))
       estado_anterior_codigo <- if (nrow(estado_anterior)) estado_anterior$estado_codigo[1] else NA_character_
-      if (!is.na(estado_nuevo) && !identical(estado_nuevo, estado_anterior_codigo)) {
-        if (estado_nuevo == "SIN_MARCAR") dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_fin=date('now','localtime') WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL AND estado_codigo='SIN_MARCAR'", params = list(id))
-        if (estado_nuevo != "SIN_MARCAR") dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_fin=date('now','localtime') WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL AND estado_codigo <> 'SIN_MARCAR'", params = list(id))
-        dbExecute(conexion, "INSERT INTO animal_estado_historial(animal_id, estado_codigo, fecha_inicio, motivo) VALUES (?, ?, date('now','localtime'), 'Estado actualizado desde edición del animal')", params = list(id, estado_nuevo))
+      if (!is.na(estado_nuevo)) {
+        dbWithTransaction(conexion, {
+          if (nrow(estado_anterior) && !identical(estado_nuevo, estado_anterior_codigo)) {
+            if (estado_nuevo == "SIN_MARCAR") dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_fin=? WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL AND estado_codigo='SIN_MARCAR'", params = list(fecha_estado, id))
+            if (estado_nuevo != "SIN_MARCAR") dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_fin=? WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL AND estado_codigo <> 'SIN_MARCAR'", params = list(fecha_estado, id))
+            dbExecute(conexion, "INSERT INTO animal_estado_historial(animal_id, estado_codigo, fecha_inicio, motivo) VALUES (?, ?, ?, ?)", params = list(id, estado_nuevo, fecha_estado, motivo_estado))
+          } else if (nrow(estado_anterior)) {
+            id_estado <- estado_anterior$estado_historial_id[1]
+            dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_inicio=?, motivo=? WHERE estado_historial_id=? AND animal_id=? AND anulado_en IS NULL AND fecha_fin IS NULL", params = list(fecha_estado, motivo_estado, id_estado, id))
+            if (identical(estado_anterior_codigo, "SIN_MARCAR")) {
+              dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_fin=? WHERE estado_historial_id=(SELECT estado_historial_id FROM animal_estado_historial WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NOT NULL AND estado_codigo='SIN_MARCAR' AND estado_historial_id<>? ORDER BY fecha_inicio DESC, estado_historial_id DESC LIMIT 1)", params = list(fecha_estado, id, id_estado))
+            } else {
+              dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_fin=? WHERE estado_historial_id=(SELECT estado_historial_id FROM animal_estado_historial WHERE animal_id=? AND anulado_en IS NULL AND fecha_fin IS NOT NULL AND estado_codigo<>'SIN_MARCAR' AND estado_historial_id<>? ORDER BY fecha_inicio DESC, estado_historial_id DESC LIMIT 1)", params = list(fecha_estado, id, id_estado))
+            }
+          } else {
+            dbExecute(conexion, "INSERT INTO animal_estado_historial(animal_id, estado_codigo, fecha_inicio, motivo) VALUES (?, ?, ?, ?)", params = list(id, estado_nuevo, fecha_estado, motivo_estado))
+          }
+        })
       }
       removeModal(); recargar(recargar() + 1L); showNotification("Animal actualizado correctamente.", type = "message")
     }, error = function(e) showNotification(paste("No se pudo actualizar el animal:", conditionMessage(e)), type = "error", duration = NULL))
@@ -2080,15 +2110,18 @@ server_aplicacion <- function(input, output, session) {
   })
 
   observeEvent(input$guardar_estado, {
-    req(input$ficha_animal)
+    if (is.null(input$estado_animal) || !nzchar(input$estado_animal)) {
+      showNotification("Selecciona el animal al que le vas a cambiar el estado.", type = "error")
+      return()
+    }
     fecha <- as.character(input$estado_fecha)
     tryCatch({
       dbWithTransaction(conexion, {
-        if (input$estado_nuevo == "SIN_MARCAR") dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_fin=? WHERE animal_id=? AND fecha_fin IS NULL AND anulado_en IS NULL AND estado_codigo='SIN_MARCAR'", params = list(fecha, input$ficha_animal))
+        if (input$estado_nuevo == "SIN_MARCAR") dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_fin=? WHERE animal_id=? AND fecha_fin IS NULL AND anulado_en IS NULL AND estado_codigo='SIN_MARCAR'", params = list(fecha, input$estado_animal))
         if (input$estado_nuevo != "SIN_MARCAR") dbExecute(conexion, "UPDATE animal_estado_historial SET fecha_fin=?
-          WHERE animal_id=? AND fecha_fin IS NULL AND anulado_en IS NULL AND estado_codigo <> 'SIN_MARCAR'", params = list(fecha, input$ficha_animal))
+          WHERE animal_id=? AND fecha_fin IS NULL AND anulado_en IS NULL AND estado_codigo <> 'SIN_MARCAR'", params = list(fecha, input$estado_animal))
         dbExecute(conexion, "INSERT INTO animal_estado_historial(animal_id, estado_codigo, fecha_inicio, motivo, observaciones)
-          VALUES (?, ?, ?, ?, ?)", params = list(input$ficha_animal, input$estado_nuevo, fecha,
+          VALUES (?, ?, ?, ?, ?)", params = list(input$estado_animal, input$estado_nuevo, fecha,
           if (nzchar(trimws(input$estado_motivo))) trimws(input$estado_motivo) else NA_character_,
           if (nzchar(trimws(input$estado_observaciones))) trimws(input$estado_observaciones) else NA_character_))
       })
