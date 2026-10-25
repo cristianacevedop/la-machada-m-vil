@@ -1001,10 +1001,11 @@ ui_aplicacion <- tagList(
       tableOutput("tabla_ventas_leche"),
       hr(),
       h3("Registrar venta de ganado"),
-      helpText("Todos los animales de esta venta usarán el mismo precio por kg. El peso se congela desde su último pesaje."),
+      helpText("Todos los animales usarán el mismo precio por kg. Puedes usar el último pesaje o escribir el peso confirmado para la venta."),
       selectInput("venta_comprador", "Comprador", choices = character(0)),
       dateInput("venta_fecha", "Fecha de venta", value = Sys.Date(), format = "yyyy-mm-dd", startview = "year", language = "es"),
       checkboxGroupInput("venta_animales", "Animales vendidos", choices = character(0)),
+      uiOutput("venta_pesos_ui"),
       numericInput("venta_precio_kg", "Precio por kg", value = NA, min = 0, step = 100),
       selectInput("venta_estado_pago", "Estado del pago", c("Pagado" = "PAGADO", "Pendiente" = "PENDIENTE", "Parcial" = "PARCIAL")),
       numericInput("venta_valor_pagado", "Monto pagado (solo pago parcial)", value = NA, min = 0, step = 1000),
@@ -1014,7 +1015,7 @@ ui_aplicacion <- tagList(
     column(3,
       h3("Resumen de la venta"),
       tableOutput("resumen_venta"),
-      helpText("Los animales sin pesaje no aparecen como disponibles: primero registre su peso en Manejo.")
+      helpText("El peso escrito aquí se guarda como peso de la venta; no crea un registro nuevo en el historial de pesajes.")
     ),
     column(12,
       h3("Ventas recientes"),
@@ -1220,7 +1221,7 @@ server_aplicacion <- function(input, output, session) {
     animales_venta <- dbGetQuery(conexion, "
       SELECT a.animal_id, a.nombre, p.peso_kg
       FROM animales a
-      JOIN pesajes p ON p.pesaje_id=(SELECT p2.pesaje_id FROM pesajes p2
+      LEFT JOIN pesajes p ON p.pesaje_id=(SELECT p2.pesaje_id FROM pesajes p2
         WHERE p2.animal_id=a.animal_id AND p2.anulado_en IS NULL ORDER BY p2.fecha DESC, p2.pesaje_id DESC LIMIT 1)
       WHERE a.anulado_en IS NULL
         AND COALESCE((SELECT e.estado_codigo FROM animal_estado_historial e WHERE e.animal_id=a.animal_id
@@ -1231,7 +1232,7 @@ server_aplicacion <- function(input, output, session) {
       ORDER BY a.animal_id")
     opciones_animales_venta <- if (nrow(animales_venta) == 0L) character(0) else setNames(animales_venta$animal_id,
       paste0(animales_venta$animal_id, ifelse(is.na(animales_venta$nombre) | animales_venta$nombre == "", "", paste0(" — ", animales_venta$nombre)),
-        " (", round(animales_venta$peso_kg, 1), " kg)"))
+        ifelse(is.na(animales_venta$peso_kg), " (sin pesaje: ingresa el peso de venta)", paste0(" (último pesaje: ", round(animales_venta$peso_kg, 1), " kg)"))))
     updateCheckboxGroupInput(session, "venta_animales", choices = opciones_animales_venta)
   }
   observe({ recargar(); actualizar_manejo() })
@@ -1844,16 +1845,45 @@ server_aplicacion <- function(input, output, session) {
       WHERE m.anulado_en IS NULL ORDER BY m.fecha DESC, m.movimiento_financiero_id DESC LIMIT 25")
     datos$Total <- formato_pesos(datos$Total); datos$Pagado <- formato_pesos(datos$Pagado); datos
   }, striped = TRUE, bordered = TRUE, spacing = "s", na = "—")
+  id_campo_peso_venta <- function(animal_id) {
+    paste0("venta_peso_", paste(sprintf("%02x", as.integer(charToRaw(enc2utf8(as.character(animal_id))))), collapse = ""))
+  }
+  output$venta_pesos_ui <- renderUI({
+    ids <- input$venta_animales
+    if (is.null(ids) || !length(ids)) return(helpText("Al seleccionar animales, podrás revisar o indicar el peso de venta de cada uno."))
+    marcadores <- paste(rep("?", length(ids)), collapse = ",")
+    datos <- dbGetQuery(conexion, paste0("
+      SELECT a.animal_id, a.nombre, p.peso_kg
+      FROM animales a LEFT JOIN pesajes p ON p.pesaje_id=(SELECT p2.pesaje_id FROM pesajes p2
+        WHERE p2.animal_id=a.animal_id AND p2.anulado_en IS NULL ORDER BY p2.fecha DESC, p2.pesaje_id DESC LIMIT 1)
+      WHERE a.animal_id IN (", marcadores, ") ORDER BY a.animal_id"), params = as.list(ids))
+    tagList(lapply(seq_len(nrow(datos)), function(i) {
+      animal_id <- as.character(datos$animal_id[i])
+      valor_actual <- isolate(input[[id_campo_peso_venta(animal_id)]])
+      valor <- if (is.null(valor_actual)) datos$peso_kg[i] else suppressWarnings(as.numeric(valor_actual[1]))
+      if (length(valor) != 1L || !is.finite(valor)) valor <- NA_real_
+      descripcion <- if (is.na(datos$nombre[i]) || !nzchar(datos$nombre[i])) animal_id else paste(animal_id, "—", datos$nombre[i])
+      div(class = "venta-peso-animal",
+        strong(descripcion),
+        numericInput(id_campo_peso_venta(animal_id), "Peso para esta venta (kg)", value = valor, min = 0.01, step = 1),
+        helpText(if (is.na(datos$peso_kg[i])) "No tiene pesaje previo; ingresa el peso confirmado." else paste0("Último pesaje: ", round(datos$peso_kg[i], 1), " kg. Puedes corregirlo para esta venta."))
+      )
+    }))
+  })
   detalle_venta_seleccionada <- reactive({
     ids <- input$venta_animales
     if (is.null(ids) || length(ids) == 0L) return(data.frame())
     marcadores <- paste(rep("?", length(ids)), collapse = ",")
     datos <- dbGetQuery(conexion, paste0("
       SELECT a.animal_id AS Animal, a.nombre AS Nombre, p.peso_kg AS `Peso (kg)`
-      FROM animales a JOIN pesajes p ON p.pesaje_id=(SELECT p2.pesaje_id FROM pesajes p2
+      FROM animales a LEFT JOIN pesajes p ON p.pesaje_id=(SELECT p2.pesaje_id FROM pesajes p2
         WHERE p2.animal_id=a.animal_id AND p2.anulado_en IS NULL ORDER BY p2.fecha DESC, p2.pesaje_id DESC LIMIT 1)
       WHERE a.animal_id IN (", marcadores, ") ORDER BY a.animal_id"), params = as.list(ids))
-    precio <- if (is.na(input$venta_precio_kg)) 0 else input$venta_precio_kg
+    datos$`Peso (kg)` <- vapply(seq_len(nrow(datos)), function(i) {
+      valor <- input[[id_campo_peso_venta(as.character(datos$Animal[i]))]]
+      if (is.null(valor)) as.numeric(datos$`Peso (kg)`[i]) else suppressWarnings(as.numeric(valor[1]))
+    }, numeric(1))
+    precio <- if (is.null(input$venta_precio_kg) || is.na(input$venta_precio_kg)) 0 else input$venta_precio_kg
     datos$`Precio/kg` <- precio
     datos$Valor <- round(datos$`Peso (kg)` * precio, 2)
     datos
@@ -1861,6 +1891,7 @@ server_aplicacion <- function(input, output, session) {
   output$resumen_venta <- renderTable({
     detalle <- detalle_venta_seleccionada()
     if (nrow(detalle) == 0L) return(data.frame(Mensaje = "Seleccione animales para ver el resumen."))
+    if (any(is.na(detalle$`Peso (kg)`) | !is.finite(detalle$`Peso (kg)`) | detalle$`Peso (kg)` <= 0)) return(data.frame(Mensaje = "Escribe un peso de venta válido para cada animal seleccionado."))
     rbind(detalle, data.frame(Animal = "TOTAL", Nombre = "", `Peso (kg)` = sum(detalle$`Peso (kg)`),
       `Precio/kg` = NA_real_, Valor = sum(detalle$Valor), check.names = FALSE))
   }, striped = TRUE, bordered = TRUE, spacing = "s", na = "—")
@@ -2612,6 +2643,10 @@ server_aplicacion <- function(input, output, session) {
     if (is.null(input$venta_comprador) || !nzchar(input$venta_comprador) || nrow(detalle) == 0L ||
         is.na(input$venta_precio_kg) || input$venta_precio_kg < 0) {
       showNotification("Selecciona comprador y animales, e indica un precio por kg válido.", type = "error")
+      return()
+    }
+    if (any(is.na(detalle$`Peso (kg)`) | !is.finite(detalle$`Peso (kg)`) | detalle$`Peso (kg)` <= 0)) {
+      showNotification("Escribe un peso de venta válido para cada animal seleccionado.", type = "error")
       return()
     }
     total <- sum(detalle$Valor)
