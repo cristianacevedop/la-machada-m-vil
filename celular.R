@@ -1225,8 +1225,7 @@ server_aplicacion <- function(input, output, session) {
         WHERE p2.animal_id=a.animal_id AND p2.anulado_en IS NULL ORDER BY p2.fecha DESC, p2.pesaje_id DESC LIMIT 1)
       WHERE a.anulado_en IS NULL
         AND COALESCE((SELECT e.estado_codigo FROM animal_estado_historial e WHERE e.animal_id=a.animal_id
-          AND e.anulado_en IS NULL AND e.fecha_fin IS NULL ORDER BY e.fecha_inicio DESC, e.estado_historial_id DESC LIMIT 1), 'ACTIVO')
-          NOT IN ('VENDIDO','MUERTO','DESCARTADO','TRASLADADO')
+          AND e.anulado_en IS NULL AND e.fecha_fin IS NULL ORDER BY e.fecha_inicio DESC, e.estado_historial_id DESC LIMIT 1), 'ACTIVO') = 'VENTA'
         AND NOT EXISTS (SELECT 1 FROM venta_animales d JOIN ventas_ganado v ON v.venta_id=d.venta_id
           WHERE d.animal_id=a.animal_id AND v.anulado_en IS NULL)
       ORDER BY a.animal_id")
