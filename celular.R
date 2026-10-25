@@ -688,12 +688,8 @@ ui_aplicacion <- tagList(
     ),
     mainPanel(
       h3("Animales registrados"),
-      selectInput("filtro_grupo_animales", "Filtrar por grupo", choices = c("Todos los grupos" = "TODOS")),
-      selectInput("filtro_potrero_animales", "Filtrar por potrero", choices = c("Todos los potreros" = "TODOS")),
-      selectInput("filtro_sexo_animales", "Filtrar por sexo", choices = c("Todos" = "TODOS", "Hembra" = "HEMBRA", "Macho" = "MACHO")),
-      selectInput("filtro_estado_animales", "Filtrar por estado", choices = c("Todos los estados" = "TODOS", "Sin marcar" = "SIN_MARCAR")),
-      textInput("filtro_arete_animales", "Filtrar por número de arete o ID", placeholder = "Escribe el arete o ID..."),
-      textInput("filtro_raza_animales", "Buscar por raza", placeholder = "Ej. Brahman"),
+      selectInput("filtro_tipo_animales", "Filtrar por", choices = c("Elige un filtro" = "", "Grupo" = "GRUPO", "Potrero" = "POTRERO", "Sexo" = "SEXO", "Estado" = "ESTADO", "Número de arete o ID" = "ARETE", "Raza" = "RAZA")),
+      uiOutput("filtro_valor_animales_ui"),
       actionButton("limpiar_filtros_animales", "Limpiar filtros", class = "btn-default"),
       textOutput("contador_animales_filtrados"),
       fluidRow(
@@ -1104,17 +1100,39 @@ server_aplicacion <- function(input, output, session) {
     ifelse(is.na(x), "—", paste0("$ ", format(round(as.numeric(x), 2), big.mark = ".", decimal.mark = ",", nsmall = 2)))
   }
 
+  output$filtro_valor_animales_ui <- renderUI({
+    tipo <- input$filtro_tipo_animales
+    if (is.null(tipo) || !nzchar(tipo)) return(helpText("Selecciona primero qué deseas filtrar."))
+    if (identical(tipo, "GRUPO")) {
+      grupos <- dbGetQuery(conexion, "SELECT grupo_id, nombre FROM grupos WHERE activo=1 ORDER BY nombre")
+      return(selectInput("filtro_valor_animales", "Grupo", choices = c("Todos los grupos" = "TODOS", setNames(as.character(grupos$grupo_id), grupos$nombre))))
+    }
+    if (identical(tipo, "POTRERO")) {
+      potreros <- dbGetQuery(conexion, "SELECT potrero_id, nombre FROM potreros WHERE activo=1 AND anulado_en IS NULL ORDER BY nombre")
+      return(selectInput("filtro_valor_animales", "Potrero", choices = c("Todos los potreros" = "TODOS", setNames(as.character(potreros$potrero_id), potreros$nombre))))
+    }
+    if (identical(tipo, "SEXO")) return(selectInput("filtro_valor_animales", "Sexo", choices = c("Todos" = "TODOS", "Hembra" = "HEMBRA", "Macho" = "MACHO")))
+    if (identical(tipo, "ESTADO")) {
+      estados <- dbGetQuery(conexion, "SELECT DISTINCT estado_codigo FROM animal_estado_historial WHERE anulado_en IS NULL ORDER BY estado_codigo")
+      return(selectInput("filtro_valor_animales", "Estado", choices = c("Todos los estados" = "TODOS", setNames(estados$estado_codigo, tools::toTitleCase(tolower(gsub("_", " ", estados$estado_codigo)))))))
+    }
+    if (identical(tipo, "ARETE")) return(textInput("filtro_valor_animales", "Número de arete o ID", placeholder = "Escribe el arete o ID..."))
+    if (identical(tipo, "RAZA")) return(textInput("filtro_valor_animales", "Raza", placeholder = "Ej. Brahman"))
+    NULL
+  })
+
   animales <- reactive({
     recargar()
-    filtro <- if (is.null(input$filtro_grupo_animales) || input$filtro_grupo_animales == "TODOS") NULL else as.integer(input$filtro_grupo_animales)
-    potrero <- if (is.null(input$filtro_potrero_animales) || input$filtro_potrero_animales == "TODOS") NULL else as.integer(input$filtro_potrero_animales)
-    sexo <- if (is.null(input$filtro_sexo_animales) || input$filtro_sexo_animales == "TODOS") NULL else input$filtro_sexo_animales
-    estado_seleccionado <- input$filtro_estado_animales
-    marcado <- identical(estado_seleccionado, "SIN_MARCAR")
-    estado <- if (is.null(estado_seleccionado) || estado_seleccionado %in% c("TODOS", "SIN_MARCAR")) NULL else estado_seleccionado
-    raza <- trimws(if (is.null(input$filtro_raza_animales)) "" else input$filtro_raza_animales)
-    arete <- trimws(if (is.null(input$filtro_arete_animales)) "" else input$filtro_arete_animales)
-    condiciones <- c(if (!is.null(filtro)) "AND gh.grupo_id = ?", if (!is.null(potrero)) "AND op.potrero_id = ?", if (!is.null(sexo)) "AND a.sexo = ?", if (!is.null(estado)) "AND eh.estado_codigo = ?", if (marcado) "AND EXISTS (SELECT 1 FROM animal_estado_historial sm WHERE sm.animal_id=a.animal_id AND sm.estado_codigo='SIN_MARCAR' AND sm.fecha_fin IS NULL AND sm.anulado_en IS NULL)", if (nzchar(arete)) "AND (LOWER(COALESCE(a.arete_hierro,'')) LIKE LOWER(?) OR LOWER(a.animal_id) LIKE LOWER(?))", if (nzchar(raza)) "AND LOWER(COALESCE(a.raza_composicion,'')) LIKE LOWER(?)")
+    tipo <- input$filtro_tipo_animales
+    valor <- input$filtro_valor_animales
+    filtro <- if (identical(tipo, "GRUPO") && !is.null(valor) && valor != "TODOS") as.character(valor) else NULL
+    potrero <- if (identical(tipo, "POTRERO") && !is.null(valor) && valor != "TODOS") as.character(valor) else NULL
+    sexo <- if (identical(tipo, "SEXO") && !is.null(valor) && valor != "TODOS") as.character(valor) else NULL
+    marcado <- identical(tipo, "ESTADO") && identical(valor, "SIN_MARCAR")
+    estado <- if (identical(tipo, "ESTADO") && !is.null(valor) && !valor %in% c("TODOS", "SIN_MARCAR")) as.character(valor) else NULL
+    arete <- if (identical(tipo, "ARETE")) trimws(if (is.null(valor)) "" else as.character(valor)) else ""
+    raza <- if (identical(tipo, "RAZA")) trimws(if (is.null(valor)) "" else as.character(valor)) else ""
+    condiciones <- c(if (!is.null(filtro)) "AND CAST(gh.grupo_id AS TEXT) = ?", if (!is.null(potrero)) "AND CAST(op.potrero_id AS TEXT) = ?", if (!is.null(sexo)) "AND a.sexo = ?", if (!is.null(estado)) "AND eh.estado_codigo = ?", if (marcado) "AND EXISTS (SELECT 1 FROM animal_estado_historial sm WHERE sm.animal_id=a.animal_id AND sm.estado_codigo='SIN_MARCAR' AND sm.fecha_fin IS NULL AND sm.anulado_en IS NULL)", if (nzchar(arete)) "AND (LOWER(COALESCE(a.arete_hierro,'')) LIKE LOWER(?) OR LOWER(a.animal_id) LIKE LOWER(?))", if (nzchar(raza)) "AND LOWER(COALESCE(a.raza_composicion,'')) LIKE LOWER(?)")
     condicion_filtros <- if (length(condiciones)) paste(condiciones, collapse = ' ') else ''
     parametros <- c(if (!is.null(filtro)) list(filtro), if (!is.null(potrero)) list(potrero), if (!is.null(sexo)) list(sexo), if (!is.null(estado)) list(estado), if (nzchar(arete)) list(paste0('%', arete, '%'), paste0('%', arete, '%')), if (nzchar(raza)) list(paste0('%', raza, '%')))
     consulta_animales <- paste0("
@@ -1179,11 +1197,6 @@ server_aplicacion <- function(input, output, session) {
     grupo_cria_actual <- isolate(input$cria_grupo)
     grupo_cria_default <- if (!is.null(grupo_cria_actual) && nzchar(grupo_cria_actual) && grupo_cria_actual %in% as.character(grupos$grupo_id)) grupo_cria_actual else if (any(toupper(grupos$nombre) == "PEQUEÑOS")) as.character(grupos$grupo_id[which(toupper(grupos$nombre) == "PEQUEÑOS")[1]]) else ""
     updateSelectInput(session, "cria_grupo", choices = c("Sin grupo" = "", setNames(grupos$grupo_id, grupos$nombre)), selected = grupo_cria_default)
-    updateSelectInput(session, "filtro_grupo_animales", choices = c("Todos los grupos" = "TODOS", setNames(grupos$grupo_id, grupos$nombre)))
-    potreros_filtro <- dbGetQuery(conexion, "SELECT potrero_id, nombre FROM potreros WHERE activo=1 AND anulado_en IS NULL ORDER BY nombre")
-    updateSelectInput(session, "filtro_potrero_animales", choices = c("Todos los potreros" = "TODOS", setNames(potreros_filtro$potrero_id, potreros_filtro$nombre)))
-    estados_filtro <- dbGetQuery(conexion, "SELECT DISTINCT estado_codigo FROM animal_estado_historial WHERE anulado_en IS NULL ORDER BY estado_codigo")
-    updateSelectInput(session, "filtro_estado_animales", choices = c("Todos los estados" = "TODOS", "Sin marcar" = "SIN_MARCAR", setNames(estados_filtro$estado_codigo, estados_filtro$estado_codigo)))
     updateSelectInput(session, "mov_grupo", choices = setNames(grupos$grupo_id, grupos$nombre))
     updateSelectInput(session, "ocup_grupo", choices = setNames(grupos$grupo_id, grupos$nombre))
     updateSelectInput(session, "sanidad_grupo", choices = setNames(grupos$grupo_id, grupos$nombre))
@@ -1236,12 +1249,7 @@ server_aplicacion <- function(input, output, session) {
   }
   observe({ recargar(); actualizar_manejo() })
   observeEvent(input$limpiar_filtros_animales, {
-    updateSelectInput(session, "filtro_grupo_animales", selected = "TODOS")
-    updateSelectInput(session, "filtro_potrero_animales", selected = "TODOS")
-    updateSelectInput(session, "filtro_sexo_animales", selected = "TODOS")
-    updateSelectInput(session, "filtro_estado_animales", selected = "TODOS")
-    updateTextInput(session, "filtro_arete_animales", value = "")
-    updateTextInput(session, "filtro_raza_animales", value = "")
+    updateSelectInput(session, "filtro_tipo_animales", selected = "")
   })
   observeEvent(input$buscar_numero_registrado, {
     removeModal()
