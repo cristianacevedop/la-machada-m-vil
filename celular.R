@@ -1114,7 +1114,10 @@ server_aplicacion <- function(input, output, session) {
     if (identical(tipo, "SEXO")) return(selectInput("filtro_valor_animales", "Sexo", choices = c("Todos" = "TODOS", "Hembra" = "HEMBRA", "Macho" = "MACHO")))
     if (identical(tipo, "ESTADO")) {
       estados <- dbGetQuery(conexion, "SELECT DISTINCT estado_codigo FROM animal_estado_historial WHERE anulado_en IS NULL ORDER BY estado_codigo")
-      return(selectInput("filtro_valor_animales", "Estado", choices = c("Todos los estados" = "TODOS", setNames(estados$estado_codigo, tools::toTitleCase(tolower(gsub("_", " ", estados$estado_codigo)))))))
+      choices_estado <- c("Todos los estados" = "TODOS", "Sin marcar" = "SIN_MARCAR",
+        if (nrow(estados)) setNames(estados$estado_codigo, tools::toTitleCase(tolower(gsub("_", " ", estados$estado_codigo)))))
+      choices_estado <- choices_estado[!duplicated(unname(choices_estado))]
+      return(selectInput("filtro_valor_animales", "Estado", choices = choices_estado))
     }
     if (identical(tipo, "ARETE")) return(textInput("filtro_valor_animales", "Número de arete o ID", placeholder = "Escribe el arete o ID..."))
     if (identical(tipo, "RAZA")) return(textInput("filtro_valor_animales", "Raza", placeholder = "Ej. Brahman"))

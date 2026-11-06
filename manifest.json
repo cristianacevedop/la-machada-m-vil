@@ -2930,10 +2930,10 @@
   },
   "files": {
     "app.R": {
-      "checksum": "a935a7c90ce3c1dbcd272aaa68295a2e"
+      "checksum": "9c16452e4f89ff4ce9aba60b19231b5f"
     },
     "celular.R": {
-        "checksum": "51f40fb02611977da584cbee52c53096"
+        "checksum": "757af96aa4d0082af2f629771ce813e6"
     },
     "generar_manifest.R": {
       "checksum": "c53fd99e8cd36d2917e9ab6523d59054"
